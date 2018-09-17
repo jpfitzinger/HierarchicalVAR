@@ -1,0 +1,14 @@
+Package: HVAR
+Title: Hierarchical VAR Modelling
+Version: 1.0.0
+Date: 2018-09-02
+Authors@R: person("Johann", "Pfitzinger", email = "jpfitzinger@gmx.de", role = c("aut", "cre"))
+Description: Hierarchical estimation procedure for highly parameterised VAR models.
+Depends: R (>= 3.4.4)
+License: GPL
+Encoding: UTF-8
+LazyData: true
+Imports:
+  cluster,
+  gaoptim
+RoxygenNote: 6.1.0
