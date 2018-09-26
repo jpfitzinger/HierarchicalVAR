@@ -12,6 +12,8 @@
 #'
 #' 'max.splits' controls the maximum splits to place at each level (default is 1). If there are more qualifying splits than max.splits, then the function prioritises tree symmetry.
 #'
+#' 'cv' allows a cross validation to be performed to select parameters. The parameters p, distance.lambda, max.splits, min.cluster and ridge.lambda can receive vector arguments. The CV uses the 1-step-ahead RMSE to select the best parameter combination.
+#'
 #' @param y Data item containing the endogenous variables
 #' @param p Integer for the lag order (default is p=1)
 #' @param type Type of deterministic regressors to include
@@ -24,6 +26,8 @@
 #' @param max.splits Maximum number of splits to place at each hierarchical level
 #' @param min.cluster Minimum number of items at each final node of the hierarchy
 #' @param ridge.lambda Add regularization parameter lambda in the calculation of restricted coefficients.
+#' @param cv Perform a rolling window cross validation of the parameters.
+#' @param initialWindow Determines the % of the data rows to use as an initial window in the rolling window CV.
 
 #' @return A 'varest' object (see package 'vars'). This can be used with methods such as 'Bcoef', 'predict', 'fevd', etc. from the 'vars'-package. Note that this is not a perfect solution. For instance, bootstrapping irf intervals will not work and the 'lm' objects contained in 'object$varest' are not native. The purpose is to enable the user to process results, but native functions will be added in future.
 
@@ -40,7 +44,10 @@ HVAR <- function(
   distance.lambda = 0,
   max.splits = 1,
   min.cluster = 1,
-  ridge.lambda = 0
+  ridge.lambda = 0,
+  cv = F,
+  initialWindow = 0.5
+
 )
 {
 
@@ -118,15 +125,60 @@ HVAR <- function(
   rownames(coefs) <- c(colnames(datamat), colnames(rhs))
   colnames(coefs) <- colnames(y)
 
-  bipart <- recbipart(datamat, exog = rhs, cov.mat, cor.mat, ord$order, ord$height, distance.lambda,
-            maxnsplits = max.splits, stop.rule = min.cluster)
+  params.all <- expand.grid(p, distance.lambda, max.splits, min.cluster, ridge.lambda)
+  colnames(params.all) <- c("p", "distance.lambda", "max.splits", "min.cluster", "ridge.lambda")
+  if (cv) {
+    cv.folds <- caret::createTimeSlices(1:sample, initialWindow = ceiling(initialWindow*sample), skip = 1)
+
+    RMSE <- matrix(NA, nrow(params.all), length(cv.folds$train))
+    for (j in 1:nrow(params.all)) {
+      params <- params.all[j,]
+      for (k in 1:length(cv.folds$train)) {
+
+        idx <- cv.folds$train[[k]]
+        bipart <- recbipart(datamat[idx,],
+                            exog = rhs[idx,],
+                            cov.mat, cor.mat, ord$order, ord$height, params$distance.lambda,
+                            maxnsplits = params$max.splits, stop.rule = params$min.cluster)
+
+        XX <- bipart$XX
+        sign.all <- bipart$sign.all
+        ymat <- yend[idx,1:K]
+        x.det <- cbind(bipart$x.all, rhs[idx,])
+        d <- diag(ncol(XX))
+        #if (!is.null(rhs)) diag(d) <- c(bipart$level.multiple, rep(1, ncol(rhs))) else diag(d) <- bipart$level.multiple
+        beta.raw <- solve(XX + ridge.lambda*d, tol = .Machine$double.eps^2) %*% t(x.det) %*% ymat
+        beta.det <- beta.raw[-c(1:ncol(bipart$x.all)),]
+        beta.raw <- beta.raw[1:ncol(bipart$x.all),]
+        for (i in 1:K) {
+          beta <- colSums(apply(sign.all, 1, function(x) x * t(beta.raw[,i])))
+          if (length(dim(beta.det))==2) coefs[,i] <- c(beta, beta.det[,i]) else coefs[,i] <- c(beta, beta.det[i])
+        }
+
+        idx.test <- cv.folds$test[[k]]
+        if (!is.null(rhs)) test.mat <- cbind(datamat[idx.test,], rhs[idx.test]) else test.mat <- datamat[idx.test,]
+        RMSE[j,k] <- sum(sqrt(colMeans((yend[idx.test,] - as.matrix(test.mat) %*% coefs)^2)))
+
+      }
+    }
+    }
+
+  if (cv) params <- params.all[rowMeans(RMSE)==min(rowMeans(RMSE)),]
+  if (!cv) params <- params.all[1,]
+
+  # Final model
+  bipart <- recbipart(datamat,
+                      exog = rhs,
+                      cov.mat, cor.mat, ord$order, ord$height, params$distance.lambda,
+                      maxnsplits = params$max.splits, stop.rule = params$min.cluster)
+
   XX <- bipart$XX
   sign.all <- bipart$sign.all
   ymat <- yend[,1:K]
   x.det <- cbind(bipart$x.all, rhs)
   d <- diag(ncol(XX))
-  diag(d) <- bipart$level.counter
-  beta.raw <- solve(XX - ridge.lambda*d, tol = .Machine$double.eps^2) %*% t(x.det) %*% ymat
+  #if (!is.null(rhs)) diag(d) <- c(bipart$level.multiple, rep(1, ncol(rhs))) else diag(d) <- bipart$level.multiple
+  beta.raw <- solve(XX + ridge.lambda*d, tol = .Machine$double.eps^2) %*% t(x.det) %*% ymat
   beta.det <- beta.raw[-c(1:ncol(bipart$x.all)),]
   beta.raw <- beta.raw[1:ncol(bipart$x.all),]
   for (i in 1:K) {
@@ -162,6 +214,8 @@ HVAR <- function(
                   bipart = bipart
   )
   class(results) <- "varest"
+
+
   return(results)
 
 }

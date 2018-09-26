@@ -7,9 +7,11 @@ get.clusters <- function(corr, clust.method = "AGNES", clust.control, absolute =
       clust.control <- list(method = "single")
     }
     clust <- do.call(cluster::agnes, c(list(x = dist(distmat)), clust.control))
+    #clust$height <- recTree(corr, clust$order)
   }
   if (clust.method == "DIANA") {
     clust <- do.call(cluster::diana, c(list(x = dist(distmat)), clust.control))
+    #clust$height <- recTree(corr, clust$order)
   }
   if (clust.method == "OPT") {
     W <- function(x) {

@@ -12,6 +12,7 @@ recbipart <- function(x, exog, cov, corr, sortIx, sortVal, thresh.val, maxnsplit
   eq.contains <- list()
   if (thresh.val == 1) thresh.val <- 0.999
   level.counter <- NULL
+  level.multiple <- NULL
 
   # Create recursion function within parent function to avoid use of GlobalEnv
   recbipart.inner <- function(x, level, nlevel, cov, corr, sortIx, sortVal, thresh.val, maxnsplits, stop.rule) {
@@ -72,7 +73,8 @@ recbipart <- function(x, exog, cov, corr, sortIx, sortVal, thresh.val, maxnsplit
     for (i in 1:grps) eq.contains.inner <- c(eq.contains.inner, get(paste0("cItems",i)))
     for (i in 1:grps) eq.contains[[length(eq.contains)+1]] <<- eq.contains.inner
 
-    level.counter <- c(level.counter, rep(nlevel,grps))
+    level.counter <<- c(level.counter, rep(nlevel,grps))
+    level.multiple <<- c(level.multiple, rep(ifelse(level==1,1,grps*level), grps))
 
     for (i in 1:grps) {
       cItems <- get(paste0("cItems",i))
@@ -97,12 +99,14 @@ recbipart <- function(x, exog, cov, corr, sortIx, sortVal, thresh.val, maxnsplit
     XX.temp[!sapply(eq.contains, function(x) all(x%in%eq.contains[[i]])),i] <- 0
   }
   XX[1:ncol(x.all), 1:ncol(x.all)] <- XX.temp
-  # beta.raw <- solve(XX) %*% t(x.det) %*% y
-  # beta.det <- beta.raw[-c(1:ncol(x.all))]
-  # beta.raw <- beta.raw[1:ncol(x.all)]
-  # beta <- colSums(apply(sign.all, 1, function(x) x * t(beta.raw)))
-  # beta <- c(beta, beta.det)
+  # if (!is.null(exog)) {
+  #   if (ncol(exog) > 1) {
+  #     XX[-c(1:ncol(x.all)), 1:ncol(x.all)] <- sweep(XX[-c(1:ncol(x.all)), 1:ncol(x.all)], 2, level.multiple, "*")
+  #   } else {
+  #     XX[-c(1:ncol(x.all)), 1:ncol(x.all)] <- XX[-c(1:ncol(x.all)), 1:ncol(x.all)] * level.multiple
+  #   }
+  # }
 
-  return(list(XX = XX, sign.all = sign.all, x.all = x.all))
+  return(list(XX = XX, sign.all = sign.all, x.all = x.all, level.counter = level.counter, level.multiple = level.multiple))
 
 }
